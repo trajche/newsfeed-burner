@@ -72,6 +72,13 @@ footer {
   text-align: center;
 }
 
+.version {
+  font-size: 10px;
+  color: #ccc;
+  text-align: center;
+  margin-top: 3px;
+}
+
 /* ---- State Panels ---- */
 .state-panel {
   display: flex;
