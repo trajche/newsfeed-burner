@@ -42,6 +42,13 @@
           || path === '/reel'   || path.startsWith('/reel/');
     }
 
+    if (isYouTube) {
+      // Home feed + Shorts only — not watch, search, channel, subscriptions, etc.
+      return path === '' || path === '/'
+          || path === '/feed/trending'
+          || path === '/shorts' || path.startsWith('/shorts/');
+    }
+
     if (isTwitter) {
       return path === '' || path === '/' || path === '/home' || path === '/explore';
     }
