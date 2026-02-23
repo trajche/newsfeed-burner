@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Newsfeed Burner",
-  "version": "1.1.0",
+  "version": "1.4.0",
   "description": "Block social media newsfeeds so you can focus. Take a 15-minute procrastination break when needed.",
   "permissions": [
     "storage",

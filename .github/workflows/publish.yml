@@ -1,0 +1,36 @@
+name: Publish to Chrome Web Store
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from manifest
+        id: version
+        run: echo "version=$(jq -r .version manifest.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Build extension zip
+        run: |
+          zip -r newsfeed-burner-${{ steps.version.outputs.version }}.zip \
+            manifest.json \
+            background.js \
+            content/ \
+            popup/ \
+            icons/ \
+            --exclude "*.DS_Store"
+
+      - name: Upload & publish to Chrome Web Store
+        uses: fregante/chrome-webstore-action@v2
+        with:
+          client-id: ${{ secrets.CHROME_CLIENT_ID }}
+          client-secret: ${{ secrets.CHROME_CLIENT_SECRET }}
+          refresh-token: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          extension-id: ${{ secrets.CHROME_EXTENSION_ID }}
+          zip-file: newsfeed-burner-${{ steps.version.outputs.version }}.zip
+          publish: true
