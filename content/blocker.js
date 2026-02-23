@@ -130,8 +130,9 @@
         return `
           /* ---- YouTube Shorts scroll-lock ---- */
 
-          /* Hide between-video navigation arrows */
-          ytd-shorts #navigation-container {
+          /* Hide between-video navigation arrows (both selector and class) */
+          ytd-shorts #navigation-container,
+          .navigation-container.ytd-shorts {
             display: none !important;
           }
 
@@ -546,11 +547,12 @@
 
       if ((oy === 'scroll' || oy === 'auto') &&
           el !== document.body && el !== document.documentElement) {
-        // Save whatever inline overflow was set before we touch it
+        // Save whatever inline values were set before we touch them
         frozenElements.push({
           el,
-          overflow:  el.style.overflow,
-          overflowY: el.style.overflowY,
+          overflow:       el.style.overflow       || null,
+          overflowY:      el.style.overflowY      || null,
+          scrollSnapType: el.style.scrollSnapType || null,
         });
         el.style.setProperty('overflow',   'hidden', 'important');
         el.style.setProperty('overflow-y', 'hidden', 'important');
@@ -558,6 +560,16 @@
           (el.className || '').toString().slice(0, 60));
       }
       if (snap && snap !== 'none') {
+        // Track so thaw can restore it
+        const already = frozenElements.find(f => f.el === el);
+        if (!already) {
+          frozenElements.push({
+            el,
+            overflow:       null,
+            overflowY:      null,
+            scrollSnapType: el.style.scrollSnapType || null,
+          });
+        }
         el.style.setProperty('scroll-snap-type', 'none', 'important');
       }
 
@@ -567,10 +579,17 @@
   }
 
   // Restore all inline styles that freezeScrollContainers() changed.
+  // Must use removeProperty() — assignment to '' does not reliably clear
+  // properties that were set via setProperty(..., 'important').
   function thawScrollContainers() {
-    for (const { el, overflow, overflowY } of frozenElements) {
-      el.style.overflow  = overflow  ?? '';
-      el.style.overflowY = overflowY ?? '';
+    for (const { el, overflow, overflowY, scrollSnapType } of frozenElements) {
+      el.style.removeProperty('overflow');
+      el.style.removeProperty('overflow-y');
+      el.style.removeProperty('scroll-snap-type');
+      // Restore original inline values if they existed
+      if (overflow)       el.style.overflow       = overflow;
+      if (overflowY)      el.style.overflowY      = overflowY;
+      if (scrollSnapType) el.style.scrollSnapType = scrollSnapType;
     }
     frozenElements = [];
     console.debug('[NFB] scroll containers thawed');
