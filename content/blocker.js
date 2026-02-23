@@ -26,8 +26,9 @@
       !isInstagram && !isTwitter && !isReddit && !isTikTok) return;
 
   // --- Page-level restriction ---
-  // Facebook: home (/) and reels only — not Groups, Marketplace, Events, etc.
-  // X/Twitter: home and explore only — not profiles, DMs, notifications, etc.
+  // Facebook : home (/) and /reels only — not Groups, Marketplace, Events, etc.
+  // X/Twitter: home and /explore only — not profiles, DMs, notifications, etc.
+  // Reddit   : feed listing pages only — not individual threads (/comments/)
 
   function isBlockedPage() {
     const path = location.pathname.replace(/\/+$/, '') || '/';
@@ -38,6 +39,13 @@
 
     if (isTwitter) {
       return path === '' || path === '/' || path === '/home' || path === '/explore';
+    }
+
+    if (isReddit) {
+      // Let users read threads and visit profiles; only block listing feeds
+      if (path.includes('/comments/')) return false;
+      if (path.startsWith('/user/'))    return false;
+      return true;
     }
 
     return true;
@@ -548,7 +556,7 @@
   // All four are SPAs — pushState navigation doesn't reload the content
   // script, so we intercept history changes to toggle blocking per page.
 
-  if (isFacebook || isTwitter || isYouTube || isInstagram) {
+  if (isFacebook || isTwitter || isYouTube || isInstagram || isReddit) {
     const _push    = history.pushState.bind(history);
     const _replace = history.replaceState.bind(history);
 
