@@ -89,37 +89,7 @@
 
       return `
         /* ---- Facebook Newsfeed ---- */
-
-        /*
-         * Exact feed container class combo (inspect-verified).
-         * data-pagelet selectors act as stable fallbacks.
-         */
-        .x78zum5.x1q0g3np.xl56j7k {
-          display: none !important;
-        }
-
-        /* Stable: main feed pagelet wrapper */
-        [data-pagelet="MainFeed"],
-        [data-pagelet^="FeedUnit"] {
-          display: none !important;
-        }
-
-        /* ARIA fallback (groups, watch, etc.) */
-        [role="feed"] {
-          display: none !important;
-        }
-
-        /* Stories / Reels bar at the top of home */
-        [data-pagelet="TopOfHome"],
-        [data-pagelet="Stories"],
-        [data-pagelet="WatchStoriesViewer"],
-        [data-pagelet^="rhc_reels"],
-        [aria-label="Stories"] {
-          display: none !important;
-        }
-
-        /* Right-rail sponsored / people you may know */
-        [data-pagelet="RightRail"] {
+        div[role="main"] {
           display: none !important;
         }
       `;
@@ -155,28 +125,12 @@
       return `
         /* ---- YouTube Home Feed ---- */
 
-        ytd-browse[page-subtype="home"] ytd-rich-grid-renderer {
-          display: none !important;
-        }
-
-        ytd-browse[page-subtype="home"] #primary {
-          display: none !important;
-        }
-
-        /* Shorts shelves inside home / subscriptions feed */
-        ytd-rich-section-renderer {
-          display: none !important;
-        }
-
+        /* Hide the feed grid and right rail */
+        ytd-browse[page-subtype="home"] ytd-rich-grid-renderer,
+        ytd-browse[page-subtype="home"] #secondary,
+        ytd-browse[page-subtype="home"] #chip-bar,
+        ytd-rich-section-renderer,
         ytd-browse[page-subtype="trending"] #contents {
-          display: none !important;
-        }
-
-        #secondary ytd-watch-next-secondary-results-renderer {
-          display: none !important;
-        }
-
-        ytd-browse[page-subtype="home"] #chip-bar {
           display: none !important;
         }
       `;
@@ -422,13 +376,9 @@
   // Returns the first selector that has a matching element on the page.
   function getMainFeedSelectors() {
     if (isFacebook)  return [
-      '[data-pagelet="MainFeed"]',
-      '.x78zum5.x1q0g3np.xl56j7k',
-      '[role="feed"]',
+      'div[role="main"]',
     ];
-    if (isYouTube)   return [
-      'ytd-browse[page-subtype="home"] ytd-rich-grid-renderer',
-    ];
+    if (isYouTube)   return []; // YouTube placeholder is handled directly in ensurePlaceholder
     if (isLinkedIn)  return [
       '._4062c218.b3b1c987._98c731d9._3f7f64c2.e2718449._4a745388',
       '[componentkey^="container-update-list_mainFeed"]',
@@ -453,27 +403,51 @@
     return [];
   }
 
+  function makePlaceholderNote() {
+    const note = document.createElement('p');
+    note.className = PLACEHOLDER_CLASS;
+    note.textContent = '🔥 Removed by Newsfeed Burner.';
+    note.style.cssText = [
+      'all: initial',
+      'display: block !important',
+      'text-align: center',
+      'padding: 20px 16px',
+      'color: #bbb',
+      'font-size: 12px',
+      'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      'letter-spacing: 0.2px',
+    ].join(';');
+    return note;
+  }
+
   function ensurePlaceholder() {
     if (!isBlockedPage()) return;
     if (document.querySelector('.' + PLACEHOLDER_CLASS)) return;
 
+    // YouTube: internal layout (shadow DOM, flex containers, overflow:hidden) makes
+    // it impossible to reliably insert a note inside the feed area. Use fixed
+    // positioning on document.body instead — nothing can clip or hide it.
+    if (isYouTube) {
+      const browse = document.querySelector('ytd-browse[page-subtype="home"]');
+      if (!browse) {
+        console.debug('[NFB] YouTube placeholder: ytd-browse[page-subtype="home"] not found yet');
+        return; // will retry via schedulePostDomWork
+      }
+      const note = makePlaceholderNote();
+      note.style.setProperty('position', 'fixed', 'important');
+      note.style.setProperty('top',       '180px', 'important');
+      note.style.setProperty('left',      '50%',   'important');
+      note.style.setProperty('transform', 'translateX(-50%)', 'important');
+      note.style.setProperty('z-index',   '9999',  'important');
+      document.body.appendChild(note);
+      console.debug('[NFB] YouTube placeholder inserted (fixed position)');
+      return;
+    }
+
     for (const sel of getMainFeedSelectors()) {
       const el = document.querySelector(sel);
       if (el && el.parentNode) {
-        const note = document.createElement('p');
-        note.className = PLACEHOLDER_CLASS;
-        note.textContent = '🔥 Removed by Newsfeed Burner.';
-        note.style.cssText = [
-          'all: initial',
-          'display: block !important',
-          'text-align: center',
-          'padding: 20px 16px',
-          'color: #bbb',
-          'font-size: 12px',
-          'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-          'letter-spacing: 0.2px',
-        ].join(';');
-        el.parentNode.insertBefore(note, el);
+        el.parentNode.insertBefore(makePlaceholderNote(), el);
         return;
       }
     }
@@ -699,7 +673,7 @@
   // All four are SPAs — pushState navigation doesn't reload the content
   // script, so we intercept history changes to toggle blocking per page.
 
-  if (isFacebook || isTwitter || isYouTube || isInstagram || isReddit) {
+  if (isFacebook || isTwitter || isInstagram || isReddit) {
     const _push    = history.pushState.bind(history);
     const _replace = history.replaceState.bind(history);
 
@@ -714,17 +688,27 @@
     window.addEventListener('popstate', onSpaNavigate);
   }
 
+  // YouTube uses its own internal router — yt-navigate-finish is the single
+  // reliable event for all navigations. Do NOT also hook pushState or we get
+  // double onSpaNavigate() calls which causes removeBlocker() to wipe the
+  // placeholder right after it was inserted.
+  if (isYouTube) {
+    document.addEventListener('yt-navigate-finish', onSpaNavigate);
+  }
+
   function onSpaNavigate() {
     console.debug('[NFB] SPA navigate → path:', location.pathname,
       '| blockedPage:', isBlockedPage(), '| fullPageBlock:', isFullPageBlock());
 
+    // Remove the old page's blocker SYNCHRONOUSLY before any async work.
+    // If we wait until the GET_STATE callback, the SPA has already rendered
+    // the new page with the old CSS still active — e.g. X.com's [cellInnerDiv]
+    // selector hides conversation items on the messages page.
+    removeBlocker();
+
     chrome.runtime.sendMessage({ type: 'GET_STATE' }, (response) => {
       if (chrome.runtime.lastError) return;
       const blocking = !response || !response.procrastinating;
-
-      // Always clear previous page state first (scroll-lock ↔ placeholder ↔
-      // nothing can differ across pages, e.g. home → /reels/ → home)
-      removeBlocker();
 
       if (blocking && isBlockedPage()) {
         injectBlocker();
