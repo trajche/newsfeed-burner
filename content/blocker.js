@@ -1,17 +1,18 @@
 /**
  * Newsfeed Burner - Content Script
  * Injects feed-blocking CSS and reacts to procrastination state changes.
- * Runs at document_start on Facebook, YouTube, and LinkedIn.
+ * Runs at document_start on Facebook, YouTube, LinkedIn, Instagram, X, Reddit, TikTok.
  */
 
 (function () {
   'use strict';
 
-  const STYLE_ID = 'newsfeed-burner-css';
+  const STYLE_ID          = 'newsfeed-burner-css';
+  const PLACEHOLDER_CLASS = 'nfb-placeholder';
 
   // --- Site Detection ---
 
-  const host = location.hostname;
+  const host        = location.hostname;
   const isFacebook  = host.includes('facebook.com');
   const isYouTube   = host.includes('youtube.com');
   const isLinkedIn  = host.includes('linkedin.com');
@@ -23,6 +24,14 @@
   if (!isFacebook && !isYouTube && !isLinkedIn &&
       !isInstagram && !isTwitter && !isReddit && !isTikTok) return;
 
+  // --- Page-level restriction (X only applies on home + explore) ---
+
+  function isBlockedPage() {
+    if (!isTwitter) return true;
+    const path = location.pathname.replace(/\/+$/, '') || '/';
+    return path === '' || path === '/' || path === '/home' || path === '/explore';
+  }
+
   // --- CSS Rules per Site ---
 
   function getFeedCSS() {
@@ -32,8 +41,7 @@
 
         /*
          * Exact feed container class combo (inspect-verified).
-         * These atomic classes are FB-generated and may change on UI deploys —
-         * the data-pagelet selectors below act as stable fallbacks.
+         * data-pagelet selectors act as stable fallbacks.
          */
         .x78zum5.x1q0g3np.xl56j7k {
           display: none !important;
@@ -71,37 +79,30 @@
       return `
         /* ---- YouTube Home Feed ---- */
 
-        /* Home page recommendation grid */
         ytd-browse[page-subtype="home"] ytd-rich-grid-renderer {
           display: none !important;
         }
 
-        /* Home page: hide the whole primary content area when feed is the only thing */
         ytd-browse[page-subtype="home"] #primary {
           display: none !important;
         }
 
-        /* Shorts shelf on home / subscriptions */
         ytd-rich-section-renderer {
           display: none !important;
         }
 
-        /* Shorts tab page */
         ytd-browse[page-subtype="shorts"] {
           display: none !important;
         }
 
-        /* Trending / Explore feed */
         ytd-browse[page-subtype="trending"] #contents {
           display: none !important;
         }
 
-        /* Watch page: sidebar recommendations */
         #secondary ytd-watch-next-secondary-results-renderer {
           display: none !important;
         }
 
-        /* Home page chips / category pills (useless without feed) */
         ytd-browse[page-subtype="home"] #chip-bar {
           display: none !important;
         }
@@ -114,31 +115,26 @@
 
         /*
          * Exact feed container class combo (inspect-verified).
-         * LinkedIn obfuscates class names; these may change on deploys —
-         * the attribute/structural selectors below are stable fallbacks.
+         * Attribute/structural selectors below are stable fallbacks.
          */
         ._4062c218.b3b1c987._98c731d9._3f7f64c2.e2718449._4a745388 {
           display: none !important;
         }
 
-        /* Stable: finite-scroll feed wrapper and its content */
         main > div.relative > .scaffold-finite-scroll,
         .scaffold-finite-scroll__content,
         .scaffold-finite-scroll {
           display: none !important;
         }
 
-        /* componentkey attribute on the feed list container */
         [componentkey^="container-update-list_mainFeed"] {
           display: none !important;
         }
 
-        /* ARIA label on main feed region */
         [aria-label^="Main Feed"] {
           display: none !important;
         }
 
-        /* Individual feed post items */
         .feed-shared-update-v2,
         .occludable-update,
         [data-id*="urn:li:activity"],
@@ -148,13 +144,11 @@
           display: none !important;
         }
 
-        /* Right-rail LinkedIn News module */
         #feed-news-module,
         .news-module {
           display: none !important;
         }
 
-        /* "People you may know" sidebar */
         .pymk-flyout {
           display: none !important;
         }
@@ -165,32 +159,34 @@
       return `
         /* ---- Instagram Feed ---- */
 
-        /* Main home feed (role="feed" is used by Instagram) */
         [role="feed"] {
           display: none !important;
         }
 
-        /* Stories row at the top of home */
         [aria-label="Stories"] {
           display: none !important;
         }
 
-        /* Reels tab full-screen feed */
         [aria-label="Reels"] {
           display: none !important;
         }
 
-        /* "Suggested posts" section that appears mid-feed */
         [aria-label="Suggested posts"] {
           display: none !important;
         }
 
-        /*
-         * Belt-and-suspenders: individual post articles in the home feed.
-         * Instagram uses obfuscated classes; if the above stops working,
-         * inspect the feed container and add its classes here like FB/LinkedIn.
-         */
         main article {
+          display: none !important;
+        }
+
+        /*
+         * Loading spinner — hide so the page stops visually "trying".
+         * Instagram keeps polling when it thinks content hasn't loaded.
+         */
+        [data-testid="loading"],
+        [aria-label="Loading..."],
+        [role="progressbar"],
+        svg[aria-label="Loading"] {
           display: none !important;
         }
       `;
@@ -198,20 +194,15 @@
 
     if (isTwitter) {
       return `
-        /* ---- X / Twitter Feed ---- */
+        /* ---- X / Twitter Feed (home + explore only) ---- */
 
-        /*
-         * Twitter uses data-testid attributes consistently — these are
-         * significantly more stable than their obfuscated class names.
-         */
-
-        /* The home timeline section */
+        /* Home timeline */
         [aria-label="Home timeline"],
         [aria-label="Timeline: Your Home Timeline"] {
           display: none !important;
         }
 
-        /* "For You" / "Following" tab content cells */
+        /* "For You" / "Following" cells */
         [data-testid="primaryColumn"] [data-testid="cellInnerDiv"] {
           display: none !important;
         }
@@ -222,7 +213,12 @@
           display: none !important;
         }
 
-        /* "Who to follow" sidebar suggestions */
+        /* Explore page feed */
+        [data-testid="primaryColumn"] section {
+          display: none !important;
+        }
+
+        /* "Who to follow" sidebar */
         [data-testid="UserCell"] {
           display: none !important;
         }
@@ -233,35 +229,22 @@
       return `
         /* ---- Reddit Feed ---- */
 
-        /*
-         * New Reddit uses web components — custom element names are very
-         * stable, unlike class-based selectors.
-         */
-
-        /* The main post feed (new Reddit) */
         shreddit-feed {
           display: none !important;
         }
 
-        /* Individual post cards */
         shreddit-post {
           display: none !important;
         }
 
-        /* Trending / Popular carousel on home */
         shreddit-trending-searches,
         [data-testid="trending-carousel"] {
           display: none !important;
         }
 
-        /* Old Reddit: the main listing */
+        /* Old Reddit */
         #siteTable,
         .listings {
-          display: none !important;
-        }
-
-        /* Old Reddit: promoted posts */
-        .promoted-tag {
           display: none !important;
         }
       `;
@@ -271,33 +254,20 @@
       return `
         /* ---- TikTok Feed ---- */
 
-        /*
-         * TikTok uses data-e2e attributes in their web app — these are
-         * more stable than their obfuscated class names.
-         */
-
-        /* Home "For You" feed items */
         [data-e2e="recommend-list-item-container"],
         [data-e2e="home-item-list"] {
           display: none !important;
         }
 
-        /* Following feed */
         [data-e2e="follow-item-list"] {
           display: none !important;
         }
 
-        /* Feed video card containers */
         [data-e2e="video-card-container"],
         [data-e2e="video-desc"] {
           display: none !important;
         }
 
-        /*
-         * Obfuscated class fallback — TikTok encodes feed wrappers with
-         * "FeedCard" in the class name pattern.
-         * Inspect the feed div and add specific classes here if needed.
-         */
         [class*="DivVideoFeed"],
         [class*="DivBigFeedCard"] {
           display: none !important;
@@ -311,42 +281,213 @@
   // --- Style Injection ---
 
   function injectBlocker() {
+    if (!isBlockedPage()) return;
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = getFeedCSS();
-    const target = document.head || document.documentElement;
-    target.appendChild(style);
+    (document.head || document.documentElement).appendChild(style);
   }
 
   function removeBlocker() {
     const style = document.getElementById(STYLE_ID);
     if (style) style.remove();
+    removePlaceholder();
+    clearFeedGuard();
   }
-
-  // --- State Check ---
 
   function applyState(blocking) {
     if (blocking) {
       injectBlocker();
+      schedulePostDomWork();
     } else {
       removeBlocker();
     }
   }
 
-  // Inject immediately (document_start) to prevent flash of feed content
-  injectBlocker();
+  // --- Placeholder ---
 
-  // Then check actual procrastination state
+  // Returns the first selector that has a matching element on the page.
+  function getMainFeedSelectors() {
+    if (isFacebook)  return [
+      '[data-pagelet="MainFeed"]',
+      '.x78zum5.x1q0g3np.xl56j7k',
+      '[role="feed"]',
+    ];
+    if (isYouTube)   return [
+      'ytd-browse[page-subtype="home"] ytd-rich-grid-renderer',
+    ];
+    if (isLinkedIn)  return [
+      '._4062c218.b3b1c987._98c731d9._3f7f64c2.e2718449._4a745388',
+      '[componentkey^="container-update-list_mainFeed"]',
+      '[aria-label^="Main Feed"]',
+      '.scaffold-finite-scroll',
+    ];
+    if (isInstagram) return [
+      '[role="feed"]',
+    ];
+    if (isTwitter)   return [
+      '[aria-label="Home timeline"]',
+      '[aria-label="Timeline: Your Home Timeline"]',
+    ];
+    if (isReddit)    return [
+      'shreddit-feed',
+      '#siteTable',
+    ];
+    if (isTikTok)    return [
+      '[data-e2e="home-item-list"]',
+      '[data-e2e="recommend-list-item-container"]',
+    ];
+    return [];
+  }
+
+  function ensurePlaceholder() {
+    if (!isBlockedPage()) return;
+    if (document.querySelector('.' + PLACEHOLDER_CLASS)) return;
+
+    for (const sel of getMainFeedSelectors()) {
+      const el = document.querySelector(sel);
+      if (el && el.parentNode) {
+        const note = document.createElement('p');
+        note.className = PLACEHOLDER_CLASS;
+        note.textContent = '🔥 Removed by Newsfeed Burner.';
+        note.style.cssText = [
+          'all: initial',
+          'display: block !important',
+          'text-align: center',
+          'padding: 20px 16px',
+          'color: #bbb',
+          'font-size: 12px',
+          'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+          'letter-spacing: 0.2px',
+        ].join(';');
+        el.parentNode.insertBefore(note, el);
+        return;
+      }
+    }
+  }
+
+  function removePlaceholder() {
+    document.querySelectorAll('.' + PLACEHOLDER_CLASS).forEach(el => el.remove());
+  }
+
+  // --- Feed Guard (CPU drain prevention) ---
+  //
+  // Problem: when the feed has display:none, the page height collapses.
+  // Sites using scroll-position-based infinite loading see
+  // scrollY ≈ scrollHeight and fire load-more requests in a tight loop.
+  //
+  // Fix: watch the hidden feed container and immediately remove any child
+  // nodes the site injects, so the loading loop has nothing to act on.
+  // We also clamp how fast it can fire using a cooldown flag.
+
+  let feedGuard    = null;
+  let guardCooling = false;
+
+  function setupFeedGuard() {
+    if (!isBlockedPage() || feedGuard) return;
+
+    for (const sel of getMainFeedSelectors()) {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+
+      feedGuard = new MutationObserver((mutations) => {
+        if (guardCooling) return;
+        guardCooling = true;
+        setTimeout(() => { guardCooling = false; }, 400);
+
+        for (const m of mutations) {
+          for (const node of m.addedNodes) {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              node.remove();
+            }
+          }
+        }
+      });
+
+      feedGuard.observe(el, { childList: true });
+      break;
+    }
+  }
+
+  function clearFeedGuard() {
+    if (feedGuard) {
+      feedGuard.disconnect();
+      feedGuard = null;
+    }
+    guardCooling = false;
+  }
+
+  // --- SPA Navigation (X / Twitter) ---
+  //
+  // X is a SPA — pushState navigation doesn't reload the content script.
+  // We need to react when the user moves between home, explore, and profile pages.
+
+  if (isTwitter) {
+    const _push    = history.pushState.bind(history);
+    const _replace = history.replaceState.bind(history);
+
+    history.pushState = function (...args) {
+      _push(...args);
+      onTwitterNavigate();
+    };
+    history.replaceState = function (...args) {
+      _replace(...args);
+      onTwitterNavigate();
+    };
+    window.addEventListener('popstate', onTwitterNavigate);
+  }
+
+  function onTwitterNavigate() {
+    chrome.runtime.sendMessage({ type: 'GET_STATE' }, (response) => {
+      if (chrome.runtime.lastError) return;
+      const blocking = !response || !response.procrastinating;
+
+      if (blocking && isBlockedPage()) {
+        injectBlocker();
+        schedulePostDomWork();
+      } else {
+        removeBlocker();
+      }
+    });
+  }
+
+  // --- Deferred post-DOM work (placeholder + guard, after elements exist) ---
+
+  let postDomTimer = null;
+
+  function schedulePostDomWork() {
+    clearTimeout(postDomTimer);
+    // Retry a few times to handle late-loading SPAs
+    let attempts = 0;
+    function attempt() {
+      ensurePlaceholder();
+      setupFeedGuard();
+      if (++attempts < 6) {
+        postDomTimer = setTimeout(attempt, 500);
+      }
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', attempt, { once: true });
+    } else {
+      attempt();
+    }
+  }
+
+  // --- Init ---
+
+  injectBlocker(); // Immediate — prevents flash of feed content
+
   chrome.runtime.sendMessage({ type: 'GET_STATE' }, (response) => {
     if (chrome.runtime.lastError) return;
     if (response && response.procrastinating) {
-      removeBlocker(); // Procrastination is active — show feed
+      removeBlocker();
+    } else {
+      schedulePostDomWork();
     }
-    // else: keep blocker active (already injected above)
   });
 
-  // --- Listen for State Changes ---
+  // --- Message Listener ---
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'STATE_CHANGED') {
@@ -354,43 +495,37 @@
     }
   });
 
-  // --- MutationObserver: Re-apply on Dynamic DOM Changes ---
-  // Facebook and LinkedIn are SPAs that re-render content without full page
-  // reloads. The CSS style tag persists, but re-injecting it on navigation
-  // ensures it stays in <head> (some frameworks clear and re-build <head>).
+  // --- MutationObserver: re-inject style if SPA clears <head> ---
 
-  let observerTimer = null;
+  let styleObserverTimer = null;
 
-  const observer = new MutationObserver(() => {
-    // Re-inject the style tag if it disappeared (e.g. SPA cleared <head>)
+  const styleObserver = new MutationObserver(() => {
     if (!document.getElementById(STYLE_ID)) {
-      clearTimeout(observerTimer);
-      observerTimer = setTimeout(() => {
+      clearTimeout(styleObserverTimer);
+      styleObserverTimer = setTimeout(() => {
         chrome.runtime.sendMessage({ type: 'GET_STATE' }, (response) => {
           if (chrome.runtime.lastError) return;
           if (!response || !response.procrastinating) {
             injectBlocker();
+            ensurePlaceholder();
           }
         });
       }, 80);
     }
   });
 
-  function startObserver() {
-    // Watch <head> for child changes (style tag removal) and
-    // watch <body> subtree for SPA navigation that swaps entire sections.
+  function startStyleObserver() {
     const head = document.head || document.documentElement;
-    observer.observe(head, { childList: true, subtree: false });
-
+    styleObserver.observe(head, { childList: true, subtree: false });
     if (document.body) {
-      observer.observe(document.body, { childList: true, subtree: false });
+      styleObserver.observe(document.body, { childList: true, subtree: false });
     }
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', startObserver, { once: true });
+    document.addEventListener('DOMContentLoaded', startStyleObserver, { once: true });
   } else {
-    startObserver();
+    startStyleObserver();
   }
 
 })();
