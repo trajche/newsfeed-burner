@@ -9,7 +9,7 @@
 
   const STYLE_ID          = 'newsfeed-burner-css';
   const PLACEHOLDER_CLASS = 'nfb-placeholder';
-  const OVERLAY_ID        = 'nfb-overlay';
+  const BANNER_ID         = 'nfb-banner';
 
   // --- Site Detection ---
 
@@ -95,6 +95,17 @@
     }
 
     if (isYouTube) {
+      if (isFullPageBlock()) {
+        // On /shorts/ — keep the video visible, only hide the between-video
+        // navigation so the user can watch but not doomscroll.
+        return `
+          /* ---- YouTube Shorts scroll-lock ---- */
+          ytd-shorts #navigation-container {
+            display: none !important;
+          }
+        `;
+      }
+
       return `
         /* ---- YouTube Home Feed ---- */
 
@@ -106,11 +117,8 @@
           display: none !important;
         }
 
+        /* Shorts shelves inside home / subscriptions feed */
         ytd-rich-section-renderer {
-          display: none !important;
-        }
-
-        ytd-browse[page-subtype="shorts"] {
           display: none !important;
         }
 
@@ -175,17 +183,41 @@
     }
 
     if (isInstagram) {
+      if (isFullPageBlock()) {
+        // On /reels/ — keep the video visible, only hide the between-reel
+        // navigation arrows so the user can watch but not doomscroll.
+        return `
+          /* ---- Instagram Reels scroll-lock ---- */
+          [aria-label="Next"],
+          [aria-label="Previous"],
+          [aria-label*="next" i][role="button"],
+          [aria-label*="previous" i][role="button"] {
+            display: none !important;
+          }
+        `;
+      }
+
       return `
-        /* ---- Instagram Feed ---- */
+        /* ---- Instagram Home Feed ---- */
 
         [role="feed"] {
           display: none !important;
+        }
+
+        /* Belt-and-suspenders: also hide articles directly.
+         * Prevents the 1-frame scroll flash where Instagram inserts a new
+         * article before the parent [role="feed"] display:none propagates. */
+        main article {
+          display: none !important;
+          animation: none !important;
+          transition: none !important;
         }
 
         [aria-label="Stories"] {
           display: none !important;
         }
 
+        /* Reels shelf / carousel on home */
         [aria-label="Reels"] {
           display: none !important;
         }
@@ -194,14 +226,7 @@
           display: none !important;
         }
 
-        main article {
-          display: none !important;
-        }
-
-        /*
-         * Loading spinner — hide so the page stops visually "trying".
-         * Instagram keeps polling when it thinks content hasn't loaded.
-         */
+        /* Loading spinner — hide so the page stops visually "trying" */
         [data-testid="loading"],
         [aria-label="Loading..."],
         [role="progressbar"],
@@ -300,20 +325,26 @@
   // --- Style Injection ---
 
   function injectBlocker() {
-    if (!isBlockedPage()) return;
+    if (!isBlockedPage()) {
+      console.debug('[NFB] injectBlocker skipped — not a blocked page:', location.pathname);
+      return;
+    }
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = getFeedCSS();
     (document.head || document.documentElement).appendChild(style);
+    console.debug('[NFB] CSS injected — fullPageBlock:', isFullPageBlock());
   }
 
   function removeBlocker() {
     const style = document.getElementById(STYLE_ID);
     if (style) style.remove();
     removePlaceholder();
-    removeOverlay();
+    removeBanner();
+    clearScrollLock();
     clearFeedGuard();
+    console.debug('[NFB] blocker removed');
   }
 
   function applyState(blocking) {
@@ -391,48 +422,77 @@
     document.querySelectorAll('.' + PLACEHOLDER_CLASS).forEach(el => el.remove());
   }
 
-  // --- Full-page Overlay (Reels / Shorts) ---
+  // --- Scroll Lock (Reels / Shorts) ---
+  // Prevents advancing to the next video via wheel/touch/keyboard while
+  // still letting the user watch the current one.
 
-  function ensureOverlay() {
-    if (!isBlockedPage()) return;
-    if (!document.body || document.getElementById(OVERLAY_ID)) return;
+  let scrollLockHandlers = null;
 
-    const overlay = document.createElement('div');
-    overlay.id = OVERLAY_ID;
-    overlay.style.cssText = [
-      'position: fixed',
-      'inset: 0',
-      'background: #ffffff',
-      'z-index: 2147483647',
-      'display: flex',
-      'flex-direction: column',
-      'align-items: center',
-      'justify-content: center',
-      'gap: 10px',
-      'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    ].join(';');
+  function setupScrollLock() {
+    if (!isFullPageBlock() || scrollLockHandlers) return;
 
-    const icon = document.createElement('span');
-    icon.textContent = '🔥';
-    icon.style.cssText = 'font-size: 28px; line-height: 1;';
+    const stopScroll = (e) => {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+    };
 
-    const msg = document.createElement('p');
-    msg.textContent = 'Disabled by Newsfeed Burner.';
-    msg.style.cssText = [
-      'all: initial',
-      'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-      'font-size: 14px',
-      'color: #999',
-      'margin: 0',
-    ].join(';');
+    const stopKeys = (e) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+      }
+    };
 
-    overlay.appendChild(icon);
-    overlay.appendChild(msg);
-    document.body.appendChild(overlay);
+    window.addEventListener('wheel',     stopScroll, { capture: true, passive: false });
+    window.addEventListener('touchmove', stopScroll, { capture: true, passive: false });
+    window.addEventListener('keydown',   stopKeys,   { capture: true });
+
+    scrollLockHandlers = { stopScroll, stopKeys };
+    console.debug('[NFB] scroll lock engaged on', location.pathname);
   }
 
-  function removeOverlay() {
-    const el = document.getElementById(OVERLAY_ID);
+  function clearScrollLock() {
+    if (!scrollLockHandlers) return;
+    const { stopScroll, stopKeys } = scrollLockHandlers;
+    window.removeEventListener('wheel',     stopScroll, { capture: true });
+    window.removeEventListener('touchmove', stopScroll, { capture: true });
+    window.removeEventListener('keydown',   stopKeys,   { capture: true });
+    scrollLockHandlers = null;
+    console.debug('[NFB] scroll lock cleared');
+  }
+
+  // --- Scroll-lock Banner ---
+  // A small floating pill shown on Reels/Shorts to indicate scroll is locked.
+
+  function ensureBanner() {
+    if (!isFullPageBlock()) return;
+    if (!document.body || document.getElementById(BANNER_ID)) return;
+
+    const banner = document.createElement('div');
+    banner.id = BANNER_ID;
+    banner.style.cssText = [
+      'position: fixed',
+      'bottom: 24px',
+      'left: 50%',
+      'transform: translateX(-50%)',
+      'background: #fff',
+      'color: #666',
+      'border-radius: 20px',
+      'padding: 8px 18px',
+      'font-size: 12px',
+      'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      'z-index: 2147483647',
+      'box-shadow: 0 2px 14px rgba(0,0,0,0.18)',
+      'white-space: nowrap',
+      'pointer-events: none',
+    ].join(';');
+    banner.textContent = '🔥 Scrolling disabled by Newsfeed Burner.';
+    document.body.appendChild(banner);
+    console.debug('[NFB] banner inserted on', location.pathname);
+  }
+
+  function removeBanner() {
+    const el = document.getElementById(BANNER_ID);
     if (el) el.remove();
   }
 
@@ -504,12 +564,15 @@
   }
 
   function onSpaNavigate() {
+    console.debug('[NFB] SPA navigate → path:', location.pathname,
+      '| blockedPage:', isBlockedPage(), '| fullPageBlock:', isFullPageBlock());
+
     chrome.runtime.sendMessage({ type: 'GET_STATE' }, (response) => {
       if (chrome.runtime.lastError) return;
       const blocking = !response || !response.procrastinating;
 
-      // Always clear previous page state first (overlay ↔ placeholder can
-      // differ across pages, e.g. navigating home → /reels/ → home)
+      // Always clear previous page state first (scroll-lock ↔ placeholder ↔
+      // nothing can differ across pages, e.g. home → /reels/ → home)
       removeBlocker();
 
       if (blocking && isBlockedPage()) {
@@ -528,10 +591,11 @@
     let attempts = 0;
     function attempt() {
       if (isFullPageBlock()) {
-        // Replace the entire page with a clean "Disabled" screen
-        ensureOverlay();
+        // Reels / Shorts — allow viewing, disable scroll between videos
+        ensureBanner();
+        setupScrollLock();
       } else {
-        // Insert a small footnote next to the hidden feed
+        // Home feed — insert footnote next to hidden feed + guard against reload
         ensurePlaceholder();
         setupFeedGuard();
       }
@@ -548,10 +612,17 @@
 
   // --- Init ---
 
+  console.debug('[NFB] init — host:', host, '| path:', location.pathname,
+    '| blockedPage:', isBlockedPage(), '| fullPageBlock:', isFullPageBlock());
+
   injectBlocker(); // Immediate — prevents flash of feed content
 
   chrome.runtime.sendMessage({ type: 'GET_STATE' }, (response) => {
-    if (chrome.runtime.lastError) return;
+    if (chrome.runtime.lastError) {
+      console.debug('[NFB] GET_STATE error:', chrome.runtime.lastError.message);
+      return;
+    }
+    console.debug('[NFB] state:', response);
     if (response && response.procrastinating) {
       removeBlocker();
     } else {
@@ -580,7 +651,8 @@
           if (!response || !response.procrastinating) {
             injectBlocker();
             if (isFullPageBlock()) {
-              ensureOverlay();
+              ensureBanner();
+              setupScrollLock();
             } else {
               ensurePlaceholder();
             }
