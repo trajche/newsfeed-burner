@@ -104,12 +104,26 @@
 
     if (isYouTube) {
       if (isFullPageBlock()) {
-        // On /shorts/ — keep the video visible, only hide the between-video
-        // navigation so the user can watch but not doomscroll.
         return `
           /* ---- YouTube Shorts scroll-lock ---- */
+
+          /* Hide between-video navigation arrows */
           ytd-shorts #navigation-container {
             display: none !important;
+          }
+
+          /* Kill CSS scroll-snap so the container can't snap to the next short */
+          * {
+            scroll-snap-type: none !important;
+            scroll-snap-align: none !important;
+          }
+
+          /* Prevent touch/pointer gestures at the CSS level */
+          ytd-shorts,
+          ytd-reel-video-renderer,
+          #shorts-container {
+            overflow: hidden !important;
+            touch-action: none !important;
           }
         `;
       }
@@ -192,15 +206,30 @@
 
     if (isInstagram) {
       if (isFullPageBlock()) {
-        // On /reels/ — keep the video visible, only hide the between-reel
-        // navigation arrows so the user can watch but not doomscroll.
         return `
           /* ---- Instagram Reels scroll-lock ---- */
+
+          /* Hide between-reel navigation buttons */
           [aria-label="Next"],
           [aria-label="Previous"],
           [aria-label*="next" i][role="button"],
           [aria-label*="previous" i][role="button"] {
             display: none !important;
+          }
+
+          /* Kill CSS scroll-snap so the container can't snap to the next reel */
+          * {
+            scroll-snap-type: none !important;
+            scroll-snap-align: none !important;
+          }
+
+          /* Prevent touch/pointer gestures at the CSS level.
+             Instagram uses a scroll-snap div inside main > section. */
+          main section,
+          main section > div,
+          main > div {
+            overflow: hidden !important;
+            touch-action: none !important;
           }
         `;
       }
@@ -431,8 +460,14 @@
   }
 
   // --- Scroll Lock (Reels / Shorts) ---
-  // Prevents advancing to the next video via wheel/touch/keyboard while
-  // still letting the user watch the current one.
+  // Prevents advancing to the next video via wheel/touch/keyboard/pointer
+  // while still letting the user watch the current one.
+  //
+  // Three-layer approach:
+  //   1. CSS: disables scroll-snap and sets overflow:hidden on containers
+  //   2. JS events: stops wheel/touch/pointer in capture phase on both
+  //      window and document so the site's handlers never fire
+  //   3. DOM scan: finds computed-scrollable elements and freezes them
 
   let scrollLockHandlers = null;
 
@@ -451,20 +486,66 @@
       }
     };
 
-    window.addEventListener('wheel',     stopScroll, { capture: true, passive: false });
-    window.addEventListener('touchmove', stopScroll, { capture: true, passive: false });
-    window.addEventListener('keydown',   stopKeys,   { capture: true });
+    const opts      = { capture: true, passive: false };
+    const optsNoP   = { capture: true };
+    const targets   = [window, document];
+
+    targets.forEach(t => {
+      t.addEventListener('wheel',        stopScroll, opts);
+      t.addEventListener('touchstart',   stopScroll, opts);
+      t.addEventListener('touchmove',    stopScroll, opts);
+    });
+    window.addEventListener('keydown', stopKeys, optsNoP);
 
     scrollLockHandlers = { stopScroll, stopKeys };
     console.debug('[NFB] scroll lock engaged on', location.pathname);
+
+    // Layer 3: freeze any computed-scrollable element in the visible tree
+    freezeScrollContainers();
+  }
+
+  // Walk the DOM (limited depth) to find elements the browser considers
+  // scrollable and forcibly set overflow:hidden on them.
+  function freezeScrollContainers() {
+    const root = document.querySelector('main') || document.querySelector('body');
+    if (!root) return;
+
+    const seen = new Set();
+    function walk(el, depth) {
+      if (depth > 8 || seen.has(el)) return;
+      seen.add(el);
+
+      const cs = window.getComputedStyle(el);
+      const oy = cs.overflowY;
+      const snap = cs.scrollSnapType;
+
+      if ((oy === 'scroll' || oy === 'auto') && el !== document.body && el !== document.documentElement) {
+        el.style.setProperty('overflow',   'hidden', 'important');
+        el.style.setProperty('overflow-y', 'hidden', 'important');
+        console.debug('[NFB] frozen scroll container:', el.tagName,
+          (el.className || '').toString().slice(0, 60));
+      }
+      if (snap && snap !== 'none') {
+        el.style.setProperty('scroll-snap-type', 'none', 'important');
+      }
+
+      for (const child of el.children) walk(child, depth + 1);
+    }
+    walk(root, 0);
   }
 
   function clearScrollLock() {
     if (!scrollLockHandlers) return;
     const { stopScroll, stopKeys } = scrollLockHandlers;
-    window.removeEventListener('wheel',     stopScroll, { capture: true });
-    window.removeEventListener('touchmove', stopScroll, { capture: true });
-    window.removeEventListener('keydown',   stopKeys,   { capture: true });
+    const opts = { capture: true };
+
+    [window, document].forEach(t => {
+      t.removeEventListener('wheel',      stopScroll, opts);
+      t.removeEventListener('touchstart', stopScroll, opts);
+      t.removeEventListener('touchmove',  stopScroll, opts);
+    });
+    window.removeEventListener('keydown', stopKeys, opts);
+
     scrollLockHandlers = null;
     console.debug('[NFB] scroll lock cleared');
   }
@@ -602,6 +683,7 @@
         // Reels / Shorts — allow viewing, disable scroll between videos
         ensureBanner();
         setupScrollLock();
+        freezeScrollContainers(); // re-run each attempt — containers load late
       } else {
         // Home feed — insert footnote next to hidden feed + guard against reload
         ensurePlaceholder();
