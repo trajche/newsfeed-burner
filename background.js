@@ -101,7 +101,12 @@ function notifyContentScripts(message) {
       if (
         tab.url.includes('facebook.com') ||
         tab.url.includes('youtube.com') ||
-        tab.url.includes('linkedin.com')
+        tab.url.includes('linkedin.com') ||
+        tab.url.includes('instagram.com') ||
+        tab.url.includes('x.com') ||
+        tab.url.includes('twitter.com') ||
+        tab.url.includes('reddit.com') ||
+        tab.url.includes('tiktok.com')
       ) {
         chrome.tabs.sendMessage(tab.id, message).catch(() => {
           // Tab may not have the content script injected yet — ignore
