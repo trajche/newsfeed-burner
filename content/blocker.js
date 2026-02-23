@@ -9,6 +9,7 @@
 
   const STYLE_ID          = 'newsfeed-burner-css';
   const PLACEHOLDER_CLASS = 'nfb-placeholder';
+  const OVERLAY_ID        = 'nfb-overlay';
 
   // --- Site Detection ---
 
@@ -40,6 +41,15 @@
     }
 
     return true;
+  }
+
+  // Returns true when the entire page should be replaced with a full-screen
+  // "Disabled" overlay — used for Instagram Reels and YouTube Shorts pages.
+  function isFullPageBlock() {
+    const path = location.pathname.replace(/\/+$/, '') || '/';
+    if (isInstagram) return path === '/reels' || path.startsWith('/reels/');
+    if (isYouTube)   return path === '/shorts' || path.startsWith('/shorts/');
+    return false;
   }
 
   // --- CSS Rules per Site ---
@@ -302,6 +312,7 @@
     const style = document.getElementById(STYLE_ID);
     if (style) style.remove();
     removePlaceholder();
+    removeOverlay();
     clearFeedGuard();
   }
 
@@ -380,6 +391,51 @@
     document.querySelectorAll('.' + PLACEHOLDER_CLASS).forEach(el => el.remove());
   }
 
+  // --- Full-page Overlay (Reels / Shorts) ---
+
+  function ensureOverlay() {
+    if (!isBlockedPage()) return;
+    if (!document.body || document.getElementById(OVERLAY_ID)) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = OVERLAY_ID;
+    overlay.style.cssText = [
+      'position: fixed',
+      'inset: 0',
+      'background: #ffffff',
+      'z-index: 2147483647',
+      'display: flex',
+      'flex-direction: column',
+      'align-items: center',
+      'justify-content: center',
+      'gap: 10px',
+      'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    ].join(';');
+
+    const icon = document.createElement('span');
+    icon.textContent = '🔥';
+    icon.style.cssText = 'font-size: 28px; line-height: 1;';
+
+    const msg = document.createElement('p');
+    msg.textContent = 'Disabled by Newsfeed Burner.';
+    msg.style.cssText = [
+      'all: initial',
+      'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      'font-size: 14px',
+      'color: #999',
+      'margin: 0',
+    ].join(';');
+
+    overlay.appendChild(icon);
+    overlay.appendChild(msg);
+    document.body.appendChild(overlay);
+  }
+
+  function removeOverlay() {
+    const el = document.getElementById(OVERLAY_ID);
+    if (el) el.remove();
+  }
+
   // --- Feed Guard (CPU drain prevention) ---
   //
   // Problem: when the feed has display:none, the page height collapses.
@@ -427,12 +483,12 @@
     guardCooling = false;
   }
 
-  // --- SPA Navigation (Facebook + X/Twitter) ---
+  // --- SPA Navigation (Facebook, X/Twitter, YouTube, Instagram) ---
   //
-  // Both sites are SPAs — pushState navigation doesn't reload the content
+  // All four are SPAs — pushState navigation doesn't reload the content
   // script, so we intercept history changes to toggle blocking per page.
 
-  if (isFacebook || isTwitter) {
+  if (isFacebook || isTwitter || isYouTube || isInstagram) {
     const _push    = history.pushState.bind(history);
     const _replace = history.replaceState.bind(history);
 
@@ -452,11 +508,13 @@
       if (chrome.runtime.lastError) return;
       const blocking = !response || !response.procrastinating;
 
+      // Always clear previous page state first (overlay ↔ placeholder can
+      // differ across pages, e.g. navigating home → /reels/ → home)
+      removeBlocker();
+
       if (blocking && isBlockedPage()) {
         injectBlocker();
         schedulePostDomWork();
-      } else {
-        removeBlocker();
       }
     });
   }
@@ -467,11 +525,16 @@
 
   function schedulePostDomWork() {
     clearTimeout(postDomTimer);
-    // Retry a few times to handle late-loading SPAs
     let attempts = 0;
     function attempt() {
-      ensurePlaceholder();
-      setupFeedGuard();
+      if (isFullPageBlock()) {
+        // Replace the entire page with a clean "Disabled" screen
+        ensureOverlay();
+      } else {
+        // Insert a small footnote next to the hidden feed
+        ensurePlaceholder();
+        setupFeedGuard();
+      }
       if (++attempts < 6) {
         postDomTimer = setTimeout(attempt, 500);
       }
@@ -516,7 +579,11 @@
           if (chrome.runtime.lastError) return;
           if (!response || !response.procrastinating) {
             injectBlocker();
-            ensurePlaceholder();
+            if (isFullPageBlock()) {
+              ensureOverlay();
+            } else {
+              ensurePlaceholder();
+            }
           }
         });
       }, 80);
