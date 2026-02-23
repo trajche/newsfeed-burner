@@ -34,7 +34,12 @@
     const path = location.pathname.replace(/\/+$/, '') || '/';
 
     if (isFacebook) {
-      return path === '' || path === '/' || path === '/reels' || path.startsWith('/reels/');
+      // /reel/ID  = individual reel (scroll-lock)
+      // /reels/   = reels tab (scroll-lock)
+      // /         = home feed (blocked)
+      return path === '' || path === '/'
+          || path === '/reels'  || path.startsWith('/reels/')
+          || path === '/reel'   || path.startsWith('/reel/');
     }
 
     if (isTwitter) {
@@ -57,6 +62,8 @@
     const path = location.pathname.replace(/\/+$/, '') || '/';
     if (isInstagram) return path === '/reels' || path.startsWith('/reels/');
     if (isYouTube)   return path === '/shorts' || path.startsWith('/shorts/');
+    if (isFacebook)  return path === '/reels'  || path.startsWith('/reels/')
+                         || path === '/reel'   || path.startsWith('/reel/');
     return false;
   }
 
@@ -64,6 +71,22 @@
 
   function getFeedCSS() {
     if (isFacebook) {
+      if (isFullPageBlock()) {
+        return `
+          /* ---- Facebook Reels scroll-lock ---- */
+          * {
+            scroll-snap-type: none !important;
+            scroll-snap-align: none !important;
+          }
+          [data-pagelet="ReelsViewer"],
+          [data-pagelet^="rhc_reels"],
+          [role="main"] > div {
+            overflow: hidden !important;
+            touch-action: none !important;
+          }
+        `;
+      }
+
       return `
         /* ---- Facebook Newsfeed ---- */
 
@@ -100,7 +123,7 @@
           display: none !important;
         }
       `;
-    }
+    } // end isFacebook
 
     if (isYouTube) {
       if (isFullPageBlock()) {
@@ -470,6 +493,7 @@
   //   3. DOM scan: finds computed-scrollable elements and freezes them
 
   let scrollLockHandlers = null;
+  let frozenElements     = []; // tracks inline-style changes made by freezeScrollContainers
 
   function setupScrollLock() {
     if (!isFullPageBlock() || scrollLockHandlers) return;
@@ -506,6 +530,7 @@
 
   // Walk the DOM (limited depth) to find elements the browser considers
   // scrollable and forcibly set overflow:hidden on them.
+  // Saves original inline values so thawScrollContainers() can restore them.
   function freezeScrollContainers() {
     const root = document.querySelector('main') || document.querySelector('body');
     if (!root) return;
@@ -515,14 +540,21 @@
       if (depth > 8 || seen.has(el)) return;
       seen.add(el);
 
-      const cs = window.getComputedStyle(el);
-      const oy = cs.overflowY;
+      const cs   = window.getComputedStyle(el);
+      const oy   = cs.overflowY;
       const snap = cs.scrollSnapType;
 
-      if ((oy === 'scroll' || oy === 'auto') && el !== document.body && el !== document.documentElement) {
+      if ((oy === 'scroll' || oy === 'auto') &&
+          el !== document.body && el !== document.documentElement) {
+        // Save whatever inline overflow was set before we touch it
+        frozenElements.push({
+          el,
+          overflow:  el.style.overflow,
+          overflowY: el.style.overflowY,
+        });
         el.style.setProperty('overflow',   'hidden', 'important');
         el.style.setProperty('overflow-y', 'hidden', 'important');
-        console.debug('[NFB] frozen scroll container:', el.tagName,
+        console.debug('[NFB] frozen:', el.tagName,
           (el.className || '').toString().slice(0, 60));
       }
       if (snap && snap !== 'none') {
@@ -532,6 +564,16 @@
       for (const child of el.children) walk(child, depth + 1);
     }
     walk(root, 0);
+  }
+
+  // Restore all inline styles that freezeScrollContainers() changed.
+  function thawScrollContainers() {
+    for (const { el, overflow, overflowY } of frozenElements) {
+      el.style.overflow  = overflow  ?? '';
+      el.style.overflowY = overflowY ?? '';
+    }
+    frozenElements = [];
+    console.debug('[NFB] scroll containers thawed');
   }
 
   function clearScrollLock() {
@@ -547,6 +589,7 @@
     window.removeEventListener('keydown', stopKeys, opts);
 
     scrollLockHandlers = null;
+    thawScrollContainers();
     console.debug('[NFB] scroll lock cleared');
   }
 
