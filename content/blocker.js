@@ -24,12 +24,22 @@
   if (!isFacebook && !isYouTube && !isLinkedIn &&
       !isInstagram && !isTwitter && !isReddit && !isTikTok) return;
 
-  // --- Page-level restriction (X only applies on home + explore) ---
+  // --- Page-level restriction ---
+  // Facebook: home (/) and reels only — not Groups, Marketplace, Events, etc.
+  // X/Twitter: home and explore only — not profiles, DMs, notifications, etc.
 
   function isBlockedPage() {
-    if (!isTwitter) return true;
     const path = location.pathname.replace(/\/+$/, '') || '/';
-    return path === '' || path === '/' || path === '/home' || path === '/explore';
+
+    if (isFacebook) {
+      return path === '' || path === '/' || path === '/reels' || path.startsWith('/reels/');
+    }
+
+    if (isTwitter) {
+      return path === '' || path === '/' || path === '/home' || path === '/explore';
+    }
+
+    return true;
   }
 
   // --- CSS Rules per Site ---
@@ -49,8 +59,7 @@
 
         /* Stable: main feed pagelet wrapper */
         [data-pagelet="MainFeed"],
-        [data-pagelet^="FeedUnit"],
-        [data-pagelet="GroupsFeed"] {
+        [data-pagelet^="FeedUnit"] {
           display: none !important;
         }
 
@@ -418,27 +427,27 @@
     guardCooling = false;
   }
 
-  // --- SPA Navigation (X / Twitter) ---
+  // --- SPA Navigation (Facebook + X/Twitter) ---
   //
-  // X is a SPA — pushState navigation doesn't reload the content script.
-  // We need to react when the user moves between home, explore, and profile pages.
+  // Both sites are SPAs — pushState navigation doesn't reload the content
+  // script, so we intercept history changes to toggle blocking per page.
 
-  if (isTwitter) {
+  if (isFacebook || isTwitter) {
     const _push    = history.pushState.bind(history);
     const _replace = history.replaceState.bind(history);
 
     history.pushState = function (...args) {
       _push(...args);
-      onTwitterNavigate();
+      onSpaNavigate();
     };
     history.replaceState = function (...args) {
       _replace(...args);
-      onTwitterNavigate();
+      onSpaNavigate();
     };
-    window.addEventListener('popstate', onTwitterNavigate);
+    window.addEventListener('popstate', onSpaNavigate);
   }
 
-  function onTwitterNavigate() {
+  function onSpaNavigate() {
     chrome.runtime.sendMessage({ type: 'GET_STATE' }, (response) => {
       if (chrome.runtime.lastError) return;
       const blocking = !response || !response.procrastinating;
