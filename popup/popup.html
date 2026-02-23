@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Newsfeed Burner</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">
+        <span class="flame">🔥</span>
+        <span class="title">Newsfeed Burner</span>
+      </div>
+    </header>
+
+    <main>
+      <!-- Blocking active state -->
+      <div id="state-blocking" class="state-panel" hidden>
+        <div class="status-icon blocking">🚫</div>
+        <p class="status-label">Newsfeeds are <strong>blocked</strong></p>
+        <p class="status-sub">Stay focused. You've got this.</p>
+        <button id="btn-procrastinate" class="btn btn-primary">
+          Take a 15-min break
+        </button>
+      </div>
+
+      <!-- Procrastination active state -->
+      <div id="state-procrastinating" class="state-panel" hidden>
+        <div class="status-icon procrastinating">⏳</div>
+        <p class="status-label">Procrastination mode <strong>on</strong></p>
+        <p class="status-sub">Newsfeeds re-block in</p>
+        <div class="timer" id="timer">15:00</div>
+        <button id="btn-stop" class="btn btn-secondary">
+          Block now
+        </button>
+      </div>
+    </main>
+
+    <footer>
+      <p class="sites">Blocking: Facebook · YouTube · LinkedIn</p>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
